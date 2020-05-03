@@ -23,6 +23,8 @@ import java.util.UUID;
 
 public class CommunicationActivity extends AppCompatActivity {
 
+    SpeechToTextTask stt;
+
     private final int REQUEST_BLUETOOTH_ENABLE = 100;
 
     private TextView mConnectionStatus;
@@ -56,6 +58,7 @@ public class CommunicationActivity extends AppCompatActivity {
             showErrorDialog("This device is not implement Bluetooth.");
             return;
         }
+        stt = new SpeechToTextTask(this);
 
         if(!mBluetoothAdapter.isEnabled()){
             Intent intent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
@@ -63,6 +66,7 @@ public class CommunicationActivity extends AppCompatActivity {
         } else{
             Log.d(TAG, "Initialisation successful.");
             showPairedDevicesListDialog();
+            stt = new SpeechToTextTask(this);
         }
     }
 
