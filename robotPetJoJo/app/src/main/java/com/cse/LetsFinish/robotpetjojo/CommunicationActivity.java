@@ -2,6 +2,7 @@ package com.cse.LetsFinish.robotpetjojo;
 
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.os.CancellationSignal;
 
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
@@ -14,6 +15,7 @@ import android.util.Log;
 import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -101,13 +103,23 @@ public class CommunicationActivity extends AppCompatActivity {
         }
 
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("Select device");
-        builder.setCancelable(false);
+        builder.setTitle("블루투스 기기 선택");
+        builder.setCancelable(true);
+        builder.setOnCancelListener(new AlertDialog.OnCancelListener() {
+
+            @Override
+            public void onCancel(DialogInterface dialog) {
+                Toast.makeText(getApplicationContext(), "블루투스 연결을 취소하셨습니다. 프로그램을 종료합니다.", Toast.LENGTH_LONG).show();
+                finishAffinity();
+                System.runFinalization();
+                System.exit(0);
+            }
+        });
+
         builder.setItems(items, new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
                 dialog.dismiss();
-
                 ConnectTask task = new ConnectTask(pairedDevices[which]);
                 mConnectionStatus.setText("연결중...");
                 task.execute();
@@ -246,6 +258,7 @@ public class CommunicationActivity extends AppCompatActivity {
         }
     }
 
+
     public class ConnectedTask extends AsyncTask<Void, String, Boolean> {
 
         private InputStream mInputStream = null;
@@ -264,7 +277,7 @@ public class CommunicationActivity extends AppCompatActivity {
             }
 
             Log.d( TAG, "connected to "+mConnectedDeviceName);
-            mConnectionStatus.setText( "connected to "+mConnectedDeviceName);
+            mConnectionStatus.setText( "연결 되었습니다.");
         }
 
 
