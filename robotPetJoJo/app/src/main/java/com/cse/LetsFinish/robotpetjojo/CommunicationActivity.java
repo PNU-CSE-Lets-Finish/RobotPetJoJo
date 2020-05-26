@@ -1,40 +1,43 @@
 package com.cse.LetsFinish.robotpetjojo;
 
-import androidx.appcompat.app.AlertDialog;
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.os.CancellationSignal;
-
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
 import android.content.DialogInterface;
 import android.content.Intent;
-import android.os.AsyncTask;
 import android.os.Bundle;
 import android.util.Log;
-import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.TextView;
-import android.widget.Toast;
+
+import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.app.AppCompatActivity;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.util.Set;
+import java.lang.reflect.Method;
 import java.util.UUID;
 
 public class CommunicationActivity extends AppCompatActivity {
 
-    private final int REQUEST_BLUETOOTH_ENABLE = 100;
+    //터미널 fragment에서 복사한다.
+    //connect, connected 과정을 연구하고 붙여넣는다.
+    //말했을 때, 지정한 스트링이 나오면 보냄과 동시에 화면에 보낸다는 것을 표시한다.
+
+    //new bluetooth
+    private enum Connected { False, Pending, True }
+    static BluetoothAdapter mBluetoothAdapter;
+    private Connected connected = Connected.False;
+    private BluetoothSocket bluetoothSocket;
+    private BluetoothDevice deviceToConnect;
+
+    private static final UUID BLUETOOTH_SPP = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
+    SpeechToTextTask stt;
 
     private TextView mConnectionStatus;
     private EditText mInputEditText;
 
-    ConnectedTask mConnectedTask = null;
-    static BluetoothAdapter mBluetoothAdapter;
-    private String mConnectedDeviceName = null;
-    private ArrayAdapter<String> mConversationArrayAdapter;
-    static boolean isConnectionError = false;
+
+
     private static final String TAG = "BluetoothClient";
 
     @Override
@@ -42,113 +45,96 @@ public class CommunicationActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_communication);
 
-        // 버튼 스킵
-
         mConnectionStatus = (TextView)findViewById(R.id.tv_bluetooth_status);
         // input text 통과 - 채팅용으로 불필요
         // 리스트 뷰 통과 - 채팅 메세지 출력용으로 불필요
 
-//        mConversationArrayAdapter = new ArrayAdapter<>( this,
-//                android.R.layout.~);
+        findConnectedDevice();
 
-        Log.d(TAG, "Initializing Bluetooth Adapter...");
+        Log.d(TAG, "deviceToConnect : " + deviceToConnect);
 
-        mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
-        if(mBluetoothAdapter == null){
-            showErrorDialog("This device is not implement Bluetooth.");
+        stt = new SpeechToTextTask(this, bluetoothSocket);
+    }
+
+    private BluetoothSocket createBluetoothSocket(BluetoothDevice device)throws IOException{
+        try{
+            final Method m = device.getClass().getMethod("createInsecureRfcommSocketToServiceRecord", UUID.class);
+            return (BluetoothSocket) m.invoke(device, BLUETOOTH_SPP);
+        } catch(Exception e){ Log.e(TAG, "could not create Insecure RFComm Connection", e);}
+        return device.createRfcommSocketToServiceRecord(BLUETOOTH_SPP);
+    }
+
+    public void findConnectedDevice(){
+        Intent intent = getIntent();
+        deviceToConnect = (BluetoothDevice)intent.getExtras().get("device");
+        Log.d(TAG, "deviceAddress : " + deviceToConnect);
+        try {
+            bluetoothSocket = deviceToConnect.createRfcommSocketToServiceRecord(BLUETOOTH_SPP);
+            bluetoothSocket.connect();
+        } catch (IOException e) {
+            e.printStackTrace();
+            try {
+                bluetoothSocket.close();
+            } catch (Exception ignored) {
+            }
+            bluetoothSocket = null;
             return;
         }
-
-        if(!mBluetoothAdapter.isEnabled()){
-            Intent intent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
-            startActivityForResult(intent, REQUEST_BLUETOOTH_ENABLE);
-        } else{
-            Log.d(TAG, "Initialisation successful.");
-            showPairedDevicesListDialog();
-        }
+        connected = Connected.True;
+        mConnectionStatus.setText("연결되었습니다.");
     }
+
+
+    private void disconnect(){
+        try{
+            bluetoothSocket.close();
+        }
+        catch(IOException e){e.printStackTrace();}
+        bluetoothSocket = null;
+        connected = Connected.False;
+    }
+
+    void write(byte[] data) throws IOException {
+        if (connected == Connected.False)
+            throw new IOException("not connected");
+        bluetoothSocket.getOutputStream().write(data);
+    }
+
+
+
 
     @Override
     protected void onDestroy() {
+        if (connected != Connected.False)
+            disconnect();
         super.onDestroy();
-
-        if ( mConnectedTask != null ) {
-
-            mConnectedTask.cancel(true);
-        }
     }
 
-    public void connected( BluetoothSocket socket ) {
-        mConnectedTask = new ConnectedTask(socket);
-        mConnectedTask.execute();
+    @Override
+    public void onStart() {
+        super.onStart();
     }
 
+    @Override
+    public void onStop() {
+        super.onStop();
+    }
 
+    @Override
+    public void onResume() {
+        super.onResume();
+    }
 
-    public void showPairedDevicesListDialog()
-    {
-        Set<BluetoothDevice> devices = mBluetoothAdapter.getBondedDevices();
-        final BluetoothDevice[] pairedDevices = devices.toArray(new BluetoothDevice[0]);
-
-        if ( pairedDevices.length == 0 ){
-            showQuitDialog( "No devices have been paired.\n"
-                    +"You must pair it with another device.");
-            return;
-        }
-
-        String[] items;
-        items = new String[pairedDevices.length];
-        for (int i=0;i<pairedDevices.length;i++) {
-            items[i] = pairedDevices[i].getName();
-        }
-
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("블루투스 기기 선택");
-        builder.setCancelable(true);
-        builder.setOnCancelListener(new AlertDialog.OnCancelListener() {
-
-            @Override
-            public void onCancel(DialogInterface dialog) {
-                Toast.makeText(getApplicationContext(), "블루투스 연결을 취소하셨습니다. 프로그램을 종료합니다.", Toast.LENGTH_LONG).show();
-                finishAffinity();
-                System.runFinalization();
-                System.exit(0);
-            }
-        });
-
-        builder.setItems(items, new DialogInterface.OnClickListener() {
-            @Override
-            public void onClick(DialogInterface dialog, int which) {
-                dialog.dismiss();
-                ConnectTask task = new ConnectTask(pairedDevices[which]);
-                mConnectionStatus.setText("연결중...");
-                task.execute();
-            }
-        });
-        builder.create().show();
+    @Override
+    public void onPause(){
+        super.onPause();
     }
 
 
 
-    public void showErrorDialog(String message)
-    {
-        AlertDialog.Builder builder = new AlertDialog.Builder(this);
-        builder.setTitle("Quit");
-        builder.setCancelable(false);
-        builder.setMessage(message);
-        builder.setPositiveButton("OK",  new DialogInterface.OnClickListener() {
-            @Override
-            public void onClick(DialogInterface dialog, int which) {
-                dialog.dismiss();
-                if ( isConnectionError  ) {
-                    isConnectionError = false;
-                    finish();
-                }
-            }
-        });
-        builder.create().show();
+    private void receive(byte[] data) {
+//        receiveText.append(new String(data));
     }
-
 
     public void showQuitDialog(String message)
     {
@@ -164,228 +150,6 @@ public class CommunicationActivity extends AppCompatActivity {
             }
         });
         builder.create().show();
-    }
-
-    void sendMessage(String msg){
-
-        if ( mConnectedTask != null ) {
-            mConnectedTask.write(msg);
-            Log.d(TAG, "send message: " + msg);
-            mConversationArrayAdapter.insert("Me:  " + msg, 0);
-        }
-    }
-
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-
-        super.onActivityResult(requestCode, resultCode, data);
-
-        if (requestCode == REQUEST_BLUETOOTH_ENABLE) {
-            if (resultCode == RESULT_OK) {
-                //BlueTooth is now Enabled
-                showPairedDevicesListDialog();
-            }
-            if (resultCode == RESULT_CANCELED) {
-                showQuitDialog("You need to enable bluetooth");
-            }
-        }
-    }
-
-
-    public class ConnectTask extends AsyncTask<Void, Void, Boolean> {
-
-        private BluetoothSocket mBluetoothSocket = null;
-        private BluetoothDevice mBluetoothDevice = null;
-        private String TAG = "ConnectTask";
-
-        ConnectTask(BluetoothDevice bluetoothDevice) {
-            mBluetoothDevice = bluetoothDevice;
-            String mConnectedDeviceName = bluetoothDevice.getName();
-
-            //SPP
-            UUID uuid = UUID.fromString("00001101-0000-1000-8000-00805f9b34fb");
-
-            try {
-                mBluetoothSocket = mBluetoothDevice.createRfcommSocketToServiceRecord(uuid);
-                Log.d( TAG, "create socket for "+ mConnectedDeviceName);
-
-            } catch (IOException e) {
-                Log.e( TAG, "socket create failed " + e.getMessage());
-            }
-
-        }
-
-
-        @Override
-        protected Boolean doInBackground(Void... params) {
-
-            // Always cancel discovery because it will slow down a connection
-            mBluetoothAdapter.cancelDiscovery();
-
-            // Make a connection to the BluetoothSocket
-            try {
-                // This is a blocking call and will only return on a
-                // successful connection or an exception
-                mBluetoothSocket.connect();
-            } catch (IOException e) {
-                // Close the socket
-                try {
-                    mBluetoothSocket.close();
-                } catch (IOException e2) {
-                    Log.e(TAG, "unable to close() " +
-                            " socket during connection failure", e2);
-                }
-
-                return false;
-            }
-
-            return true;
-        }
-
-
-        @Override
-        protected void onPostExecute(Boolean isSucess) {
-
-            if ( isSucess ) {
-                connected(mBluetoothSocket);
-            }
-            else{
-                isConnectionError = true;
-                Log.d( TAG,  "Unable to connect device");
-                showErrorDialog("Unable to connect device");
-            }
-        }
-    }
-
-
-    public class ConnectedTask extends AsyncTask<Void, String, Boolean> {
-
-        private InputStream mInputStream = null;
-        private OutputStream mOutputStream = null;
-        private BluetoothSocket mBluetoothSocket = null;
-        private final String TAG = "ConnectedTask";
-
-        ConnectedTask(BluetoothSocket socket){
-
-            mBluetoothSocket = socket;
-            try {
-                mInputStream = mBluetoothSocket.getInputStream();
-                mOutputStream = mBluetoothSocket.getOutputStream();
-            } catch (IOException e) {
-                Log.e(TAG, "socket not created", e );
-            }
-
-            Log.d( TAG, "connected to "+mConnectedDeviceName);
-            mConnectionStatus.setText( "연결 되었습니다.");
-        }
-
-
-        @Override
-        protected Boolean doInBackground(Void... params) {
-
-            byte [] readBuffer = new byte[1024];
-            int readBufferPosition = 0;
-
-
-            while (true) {
-
-                if ( isCancelled() ) return false;
-
-                try {
-
-                    int bytesAvailable = mInputStream.available();
-
-                    if(bytesAvailable > 0) {
-
-                        byte[] packetBytes = new byte[bytesAvailable];
-
-                        mInputStream.read(packetBytes);
-
-                        for(int i=0;i<bytesAvailable;i++) {
-
-                            byte b = packetBytes[i];
-                            if(b == '\n')
-                            {
-                                byte[] encodedBytes = new byte[readBufferPosition];
-                                System.arraycopy(readBuffer, 0, encodedBytes, 0,
-                                        encodedBytes.length);
-                                String recvMessage = new String(encodedBytes, "UTF-8");
-
-                                readBufferPosition = 0;
-
-                                Log.d(TAG, "recv message: " + recvMessage);
-                                publishProgress(recvMessage);
-                            }
-                            else
-                            {
-                                readBuffer[readBufferPosition++] = b;
-                            }
-                        }
-                    }
-                } catch (IOException e) {
-
-                    Log.e(TAG, "disconnected", e);
-                    return false;
-                }
-            }
-
-        }
-
-        @Override
-        protected void onProgressUpdate(String... recvMessage) {
-
-            mConversationArrayAdapter.insert(mConnectedDeviceName + ": " + recvMessage[0], 0);
-        }
-
-        @Override
-        protected void onPostExecute(Boolean isSucess) {
-            super.onPostExecute(isSucess);
-
-            if ( !isSucess ) {
-
-
-                closeSocket();
-                Log.d(TAG, "Device connection was lost");
-                isConnectionError = true;
-                showErrorDialog("Device connection was lost");
-            }
-        }
-
-        @Override
-        protected void onCancelled(Boolean aBoolean) {
-            super.onCancelled(aBoolean);
-
-            closeSocket();
-        }
-
-        void closeSocket(){
-
-            try {
-
-                mBluetoothSocket.close();
-                Log.d(TAG, "close socket()");
-
-            } catch (IOException e2) {
-
-                Log.e(TAG, "unable to close() " +
-                        " socket during connection failure", e2);
-            }
-        }
-
-        void write(String msg){
-
-            msg += "\n";
-
-            try {
-                mOutputStream.write(msg.getBytes());
-                mOutputStream.flush();
-            } catch (IOException e) {
-                Log.e(TAG, "Exception during send", e );
-            }
-
-            mInputEditText.setText(" ");
-        }
     }
 
 }
