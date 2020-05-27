@@ -13,10 +13,10 @@
 #define pin_TRIG            5
 
 // 바퀴 핀번호 할당
-#define LEFT_WHEEL_MINUS    12
-#define LEFT_WHEEL_PLUS     13
-#define RIGHT_WHEEL_MINUS   7
-#define RIGHT_WHEEL_PLUS    8
+#define LEFT_WHEEL_MINUS    7
+#define LEFT_WHEEL_PLUS     8
+#define RIGHT_WHEEL_MINUS   12
+#define RIGHT_WHEEL_PLUS    13
 
 // 양귀, 꼬리 핀번호 할당
 #define PIN_EAR_TAIL       6
@@ -31,11 +31,13 @@
 
 
 // 주행 명령어 구분
-#define STOP                '0'
-#define FORWARD             '1'
-#define BACKWARD            '2'
-#define TURN_LEFT           '3'
-#define TURN_RIGHT          '4'
+#define STOP                '0'          // 정지 상태 설정
+#define FORWARD             '1'          // 전진 상태 설정
+#define BACKWARD            '2'          // 후진 상태 설정
+#define TURN_LEFT           '3'          // 좌회전 상태 설정
+#define TURN_RIGHT          '4'          // 우회전 상태 설정
+#define LEFT_BACK           '5'          // 좌측바퀴 반대회전
+#define RIGHT_BACK          '6'          // 우측바퀴 반대회전
 
 // 유저 명령어 구분
 #define USR_CALL                'A'      // 스마트폰 마이크에 “죠죠”를 부르면 로봇 펫이 짖는 것으로 응답한다.
@@ -46,7 +48,10 @@
 #define USR_TURN                'F'      // 스마트폰 마이크에 “돌아” 명령 시 로봇 펫이 제자리에서 1바퀴 시계방향으로 회전한다.
 #define USR_HANDPUSH            'G'      // 스마트폰 마이크에 “손” 명령 시 로봇 펫이 왼 앞발을 사용자 방향으로 내민다.
 #define USR_CAREFULLY           'H'      // 스마트폰 마이크에 “쫑긋” 명령 시 로봇 펫이 왼쪽 귀와 오른 쪽 귀를 각각 1초씩 2번 접었다 편다.
-#define TEST                    'T'      //
+#define USR_FORWARD             'I'      // 스마트폰 마이크에 "앞으로 가" 명령 시 로봇펫이 2초간 앞으로 간다.
+#define USR_BACKWARD            'J'      // 스마트폰 마이크에 "뒤로 가" 명령 시 로봇펫이 2초간 뒤로 간다.
+
+#define TEST                    'T'      // 전압테스트
 #define INIT_ALL                'Z'      // 
 
   
@@ -128,7 +133,9 @@ void loop() {
 
   if( bt.available() )
   {    
-    int sel = bt.read();    
+    int sel = bt.read();
+    int sel2 = bt.read();
+    
     Serial.println(sel);
     
     switch( sel )
@@ -170,7 +177,7 @@ void loop() {
            break;
            
         case USR_HOLD:        // 음성 명령 "멈춰"
-           WheelSetup(sel);
+           Stop();
            break;
            
         case USR_WALK:        // 음성 명령 "산책가자"
@@ -188,6 +195,14 @@ void loop() {
         case USR_CAREFULLY:   // 음성 명령 "쫑긋"
            Craefully();
            break;
+
+        case USR_FORWARD:     // 음성 명령 "앞으로 가"
+             Forward();
+             break;
+
+        case USR_BACKWARD:    // 음성 명령 "뒤로 가"
+            Backward();
+            break;           
            
         case TEST:   // 테스트함수
           Test();
@@ -223,17 +238,30 @@ void WheelSetup( int mode )
         // 좌회전 명령
         case TURN_LEFT:
            digitalWrite(LEFT_WHEEL_MINUS, LOW);
-           digitalWrite(LEFT_WHEEL_PLUS, HIGH);
+           digitalWrite(LEFT_WHEEL_PLUS, LOW);
            digitalWrite(RIGHT_WHEEL_MINUS,LOW);
-           digitalWrite(RIGHT_WHEEL_PLUS,LOW);
+           digitalWrite(RIGHT_WHEEL_PLUS,HIGH);
            break;
           
         // 우회전 명령 
         case TURN_RIGHT:
            digitalWrite(LEFT_WHEEL_MINUS, LOW);
+           digitalWrite(LEFT_WHEEL_PLUS, HIGH);
+           digitalWrite(RIGHT_WHEEL_MINUS,LOW);
+           digitalWrite(RIGHT_WHEEL_PLUS,LOW);
+           break; 
+        case LEFT_BACK:
+           digitalWrite(LEFT_WHEEL_MINUS, HIGH);
            digitalWrite(LEFT_WHEEL_PLUS, LOW);
            digitalWrite(RIGHT_WHEEL_MINUS,LOW);
-           digitalWrite(RIGHT_WHEEL_PLUS,HIGH);
+           digitalWrite(RIGHT_WHEEL_PLUS,LOW);
+           break;
+          
+        case RIGHT_BACK:
+           digitalWrite(LEFT_WHEEL_MINUS, LOW);
+           digitalWrite(LEFT_WHEEL_PLUS, LOW);
+           digitalWrite(RIGHT_WHEEL_MINUS,HIGH);
+           digitalWrite(RIGHT_WHEEL_PLUS,LOW);
            break; 
         case STOP:
         case USR_HOLD:          
@@ -252,7 +280,7 @@ void Call(){         // mp3 재생.
 }
 
 
-void Follow(){       // 적외선 열화상 센서, 초음파센서 이용
+void Follow(){       // 적외선 열화상 센서, 초음파센서 이용하여 온도총합이 높은 위치를 찾은후 거리를 측정하고 해당 방향으로 전환하여 이동한다.
   
   int temp;
   int temp2;
@@ -365,30 +393,30 @@ void Follow(){       // 적외선 열화상 센서, 초음파센서 이용
       {
         case 0:
           WheelSetup(TURN_LEFT);
-          delay(1500);
+          delay(1000);
           WheelSetup(STOP);
           break;
         case 1:
           WheelSetup(TURN_LEFT);
-          delay(1000);
+          delay(600);
           WheelSetup(STOP);
           break;
         case 2:
           break;
         case 3:
           WheelSetup(TURN_RIGHT);
-          delay(1000);
+          delay(600);
           WheelSetup(STOP);
           break;
         case 4:
           WheelSetup(TURN_RIGHT);
-          delay(1500);
+          delay(1000);
           WheelSetup(STOP);
           break;
       }
       delay(500);
       WheelSetup(FORWARD);
-      delay(50*distance); // 1m 당 5초 전진
+      delay(20*distance); // 1m 당 2초 전진
       WheelSetup(STOP);
 
       // 다시 정면을 바라봄
@@ -401,8 +429,150 @@ void Follow(){       // 적외선 열화상 센서, 초음파센서 이용
 }
 
 
-void Back(){         // 적외선 열화상 센서, 초음파센서 이용
+void Back(){         // 적외선 열화상 센서, 초음파센서 이용하여 온도총합이 높은 위치를 찾은후 거리를 측정하고 해당방향과 반대로 멀어진다.
+    
+  int temp;
+  int temp2;
+  int Tmin = 1000, Tmax = 0;
+  int Tmin2 = 1000, Tmax2 = 0;
+  int int_temp;
+  int int_temp2;
+  int h,v;
+  int total[5][3] = { 0, };  // 2차원 배열의 요소를 모두 0으로 초기화
+  int max_temp = 0;
+  int max_h, max_v;
+  int pos;
+
+  long duration, distance;    // 초음파 센서용 변수
+
+   servo_left_right.write(90);
+   servo_up_down.write(0);
+
+  for( pos=90; pos>=45; pos-=15 ){
+    servo_left_right.write(pos);
+    servo_up_down.write(90-pos);
+    delay(300);
+  }
+
+  for(v=0; v<1; v++)
+  {
+    for(h=0; h<5; h++)
+    {/*
+      if(h!=0)
+      {
+        for( pos=45+(h-1)*22.5; pos<=45+h*22.5; pos+=4.5 )
+          servo_left_right.write(pos);
+          delay(500);          
+      }*/
+
+      if(h!=0)
+        servo_left_right.write(45+h*22.5-11.25);
+      delay(100);
+      servo_left_right.write(45+h*22.5);
+      servo_up_down.write(45+v*22.5);        //정면 서보 회전
+      
+      amg.readPixels(pixels); // 픽셀 배열 읽어들인다.
+      amg2.readPixels(pixels2); // 픽셀 배열 읽어들인다.
+
+      delay(500);       // 지연시간을 설정해 충분히 센서값을 읽을 수 있도록함.  
+
+      for (int i = 1; i <= AMG88xx_PIXEL_ARRAY_SIZE; i++) {   // 최소 최대값 구한다.
+        temp = pixels[i - 1] * 10;
+        Tmin = Tmin > temp ? temp : Tmin;
+        Tmax = Tmax < temp ? temp : Tmax;
+        
+        temp2 = pixels2[i - 1] * 10;
+        Tmin2 = Tmin2 > temp2 ? temp2 : Tmin2;
+        Tmax2 = Tmax2 < temp2 ? temp2 : Tmax2;
+      }
+      
+      for (int i = AMG88xx_PIXEL_ARRAY_SIZE; i >= 1; i--) {   // 범위를 설정해 값을 맵핑시킨다.
+        temp = pixels[i - 1] * 10;
+        temp2 = pixels2[i - 1] * 10;
+        int_temp = map(temp, Tmin, Tmax, 0, 21); // 온도의 범위를 21단계로 나눔
+        int_temp2 = map(temp2, Tmin2, Tmax2, 0, 21); // 온도의 범위를 21단계로 나눔
+        
+        if( int_temp>=12 || int_temp2>=12 )
+          total[h][v]++;      // 기준치보다 높다면 온도 총합에 포함          
+      }        
+      
+    }
+  }
+
+
   
+
+
+  for(v=0; v<1; v++)        // 온도 총합이 최대인 위치를 찾음.
+  {
+    for(h=0; h<5; h++)
+    {
+      if( max_temp < total[h][v] )
+      {
+        max_temp = total[h][v];
+        max_h = h;
+        max_v = v;
+      }
+    }
+  }
+
+    for( pos=135; pos>=45+max_h*22.5; pos-=11.25)
+    {
+      servo_left_right.write(pos);
+      delay(50);
+    }
+      //온도 총합이 최대인 위치로 정면을 바라봄
+      servo_left_right.write(45+max_h*22.5);
+      servo_up_down.write(45+max_v*22.5);   
+
+      delay(500); // 초음파 센서 준비시간
+          
+      digitalWrite(pin_TRIG, LOW);
+      delayMicroseconds(2);
+      digitalWrite(pin_TRIG, HIGH);
+      delayMicroseconds(10);
+      digitalWrite(pin_TRIG, LOW);
+      
+      duration = pulseIn (pin_ECHO, HIGH); //물체에 반사되어돌아온 초음파의 시간을 변수에 저장합니다.
+      //34000*초음파가 물체로 부터 반사되어 돌아오는시간 /1000000 / 2(왕복값이아니라 편도값이기때문에 나누기2를 해줍니다.)
+     //초음파센서의 거리값이 위 계산값과 동일하게 Cm로 환산되는 계산공식 입니다. 수식이 간단해지도록 적용했습니다.
+      distance = duration * 17 / 1000;
+      
+      switch( max_h )
+      {
+        case 0:
+          WheelSetup(LEFT_BACK);
+          delay(1000);
+          WheelSetup(STOP);
+          break;
+        case 1:
+          WheelSetup(LEFT_BACK);
+          delay(600);
+          WheelSetup(STOP);
+          break;
+        case 2:
+          break;
+        case 3:
+          WheelSetup(RIGHT_BACK);
+          delay(600);
+          WheelSetup(STOP);
+          break;
+        case 4:
+          WheelSetup(RIGHT_BACK);
+          delay(1000);
+          WheelSetup(STOP);
+          break;
+      }
+      delay(500);
+      WheelSetup(BACKWARD);
+      delay(20*distance); // 1m 당 2초 후진
+      WheelSetup(STOP);
+
+      // 다시 정면을 바라봄
+      servo_left_right.write(90);
+      servo_up_down.write(0);
+
+      
 }
 
 void Walk(){         // 귀, 꼬리 2초간 흔들기
@@ -461,14 +631,30 @@ void Craefully(){   // 귀를 2번 접었다 편다.
   }
 }
 
-void InitAll(){
+void Forward(){   // 2초간 전진
+  WheelSetup(FORWARD);
+  delay(2000);
+  WheelSetup(STOP);
+}
+
+void Backward(){  // 2초간 후진
+  WheelSetup(BACKWARD);
+  delay(2000);
+  WheelSetup(STOP);
+  
+}
+
+
+void InitAll(){   // 서보모터 및 바퀴 동작 정지
   InitWheel();
   InitServo();
 }
 
+void Stop(){      // 동작 중지 함수
+  InitAll();
+}
 
-
-void Test(){  
+void Test(){      // 전압 테스트용
   float vout = 0.0;   
   float vin = 0.0;  
   float R1 = 30000.0;  
