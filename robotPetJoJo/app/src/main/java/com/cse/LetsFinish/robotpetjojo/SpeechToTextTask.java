@@ -1,6 +1,6 @@
 package com.cse.LetsFinish.robotpetjojo;
 
-import android.app.Activity;
+import  android.app.Activity;
 import android.bluetooth.BluetoothSocket;
 import android.content.Intent;
 import android.os.Bundle;
@@ -18,13 +18,13 @@ public class SpeechToTextTask {
 
     private static final String TAG = "BluetoothClient";
 
-    Intent i;
-    SpeechRecognizer mRecognizer;
-    Button btn_speech;
-    String text = "JoJo";
+    private Intent i;
+    private SpeechRecognizer mRecognizer;
+    private Button btn_speech;
+    private String text = "JoJo";
 
-    BluetoothSocket bluetoothSocket;
-    DecodeMessage mDecodeMessage;
+    private BluetoothSocket bluetoothSocket;
+    private DecodeMessage mDecodeMessage;
 
     public SpeechToTextTask(Activity activity, BluetoothSocket bluetoothSocket) {
         //bluetooth
@@ -51,7 +51,7 @@ public class SpeechToTextTask {
         });
     }
 
-    void write(byte[] data) {
+    private void write(byte[] data) {
         try{
             bluetoothSocket.getOutputStream().write(data);
         }

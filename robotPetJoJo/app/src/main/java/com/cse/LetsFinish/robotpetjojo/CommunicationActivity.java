@@ -34,8 +34,6 @@ public class CommunicationActivity extends AppCompatActivity {
     SpeechToTextTask stt;
 
     private TextView mConnectionStatus;
-    private EditText mInputEditText;
-
 
 
     private static final String TAG = "BluetoothClient";
@@ -93,14 +91,6 @@ public class CommunicationActivity extends AppCompatActivity {
         bluetoothSocket = null;
         connected = Connected.False;
     }
-
-    void write(byte[] data) throws IOException {
-        if (connected == Connected.False)
-            throw new IOException("not connected");
-        bluetoothSocket.getOutputStream().write(data);
-    }
-
-
 
 
     @Override
