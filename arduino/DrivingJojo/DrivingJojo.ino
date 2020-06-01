@@ -28,8 +28,6 @@
 // 손 핀번호 할당
 #define PIN_HAND            11
 
-
-
 // 주행 명령어 구분
 #define STOP                '0'          // 정지 상태 설정
 #define FORWARD             '1'          // 전진 상태 설정
@@ -52,8 +50,10 @@
 #define USR_BACKWARD            'J'      // 스마트폰 마이크에 "뒤로 가" 명령 시 로봇펫이 2초간 뒤로 간다.
 
 #define TEST                    'T'      // 전압테스트
-#define INIT_ALL                'Z'      // 
+#define INIT_ALL                'Z'      // 서보모터 및 바퀴 동작정지 상태
 
+#define H_SIZE                   5        // 열화상센서에서 수평위치 횟수를 결정
+#define V_SIZE                   1        // 열화상센서에서 수직위치 횟수를 결정
   
 SoftwareSerial bt(pin_RX,pin_TX); // 블루투스 시리얼 오브젝트
 Servo servo_ear_tail;             // 양귀, 꼬리용 서보 오브젝트
@@ -61,22 +61,19 @@ Servo servo_hand;                 // 손용 서보 오브젝트
 Servo servo_left_right;           // 좌우 얼굴 회전용 서보 오브젝트
 Servo servo_up_down;              // 상하 얼굴 회전용 서보 오브젝트
 
-int pos = 0;
+int pos = 0;                      // 임시 위치변수
 
-
-
-
-Adafruit_AMG88xx amg;
-Adafruit_AMG88xx amg2;
-float pixels[AMG88xx_PIXEL_ARRAY_SIZE];
-float pixels2[AMG88xx_PIXEL_ARRAY_SIZE];
+Adafruit_AMG88xx amg;                     // 좌측 열화상 센서용 오브젝트
+Adafruit_AMG88xx amg2;                    // 우측 열화상 센서용 오브젝트
+float pixels[AMG88xx_PIXEL_ARRAY_SIZE];   // 좌측 열화상 센서의 데이터를 담기 위한 픽셀 배열
+float pixels2[AMG88xx_PIXEL_ARRAY_SIZE];  // 우측 열화상 센서의 데이터를 담기 위한 픽셀 배열
 
 
 void setup() {
 
-  bt.begin(9600);
-  amg.begin(0x68);
-  amg2.begin(0x69);
+  bt.begin(9600);         // 블루투스 시리얼 설정
+  amg.begin(0x68);        // 좌측 열화상 센서 주소 설정 (optional)
+  amg2.begin(0x69);       // 우측 열화상 센서 주소 설정 (default)
   
   // 초음파 센서 핀모드 설정 및 초기화
   pinMode(pin_ECHO, INPUT);
@@ -96,7 +93,7 @@ void setup() {
   servo_left_right.attach(PIN_LEFT_RIGHT);
   servo_up_down.attach(PIN_UP_DOWN);
 
-  // 얼굴 정면 세팅
+  // 얼굴 정면 위치 초기화
   InitServo();
 
 
@@ -106,13 +103,103 @@ void setup() {
   delay(1);
   mp3_set_volume(30);
   
-  delay(100); // let sensor boot up
-
+  delay(100); // 센서가 부팅 될 수 있는 최소 시간 설정
 
 }
 
+void loop() {
 
-void InitWheel()
+
+  if( bt.available() )        // 블루투스가 수신되었다면
+  {    
+    int sel = bt.read();      // 블루투스 읽어들인 다음 값을 sel에 저장
+    int sel2 = bt.read();     // 블루투스 읽어들인 다음 값을 sel2에 저장 (안드로이드 음성인식에서 똑같은 값을 2번 연속으로 보내기 때문에 하나를 버리기 위한 임시변수)
+    
+    Serial.println(sel);      // 블루투스 값이 제대로 전달되었는지 시리얼 모니터 상으로 테스팅
+    
+    switch( sel )             // sel의 값에 따라 조작을 설정
+    {
+        case FORWARD:          // 수동조작 전진 명령이 전달되었을 때
+           WheelSetup(sel);
+           break;
+
+
+        case BACKWARD:         // 수동조작 후진 명령이 전달되었을 때
+           WheelSetup(sel);
+           break;
+
+
+        case TURN_LEFT:        // 수동조작 좌회전 명령이 전달되었을 때
+           WheelSetup(sel);
+           break;
+          
+
+        case TURN_RIGHT:       // 수동조작 우회전 명령이 전달되었을 때
+           WheelSetup(sel);
+           break; 
+         
+        case STOP:             // 수동조작 정지 명령이 전달되었을 때
+           WheelSetup(sel);
+           break;
+
+        case USR_CALL:        // 음성 명령 "죠죠"가 전달되었을 때
+           Call();
+           break;
+           
+        case USR_FOLLOW:      // 음성 명령 "이리와"가 전달되었을 때
+           Follow();
+           break;
+           
+        case USR_BACK:        // 음성 명령 "저리가"가 전달되었을 때
+           Back();
+           break;
+           
+        case USR_HOLD:        // 음성 명령 "멈춰"가 전달되었을 때
+           Stop();
+           break;
+           
+        case USR_WALK:        // 음성 명령 "산책가자"가 전달되었을 때
+           Walk();
+           break;
+           
+        case USR_TURN:        // 음성 명령 "돌아"가 전달되었을 때
+           Turn();
+           break;
+           
+        case USR_HANDPUSH:    // 음성 명령 "손"이 전달되었을 때
+           HandPush();
+           break;
+           
+        case USR_CAREFULLY:   // 음성 명령 "쫑긋"이 전달되었을 때
+           Craefully();
+           break;
+
+        case USR_FORWARD:     // 음성 명령 "앞으로 가"가 전달되었을 때
+             Forward();
+             break;
+
+        case USR_BACKWARD:    // 음성 명령 "뒤로 가"가 전달되었을 때
+            Backward();
+            break;           
+           
+        case TEST:   // 전압 테스트함수가 전달되었을 때
+          Test();
+          break;
+            
+        case INIT_ALL:  // 서보모터 위치 초기화 및 바퀴 초기화
+          InitAll();
+          break;       
+
+        default :   // 예상외의 명령이 전달되었을 때
+          InitAll();
+          break;       
+    }    
+  }
+  
+}
+
+
+void InitWheel()      // 바퀴 상태를 정지 상태로 초기화
 {
       digitalWrite(LEFT_WHEEL_MINUS, LOW);
       digitalWrite(LEFT_WHEEL_PLUS, LOW);
@@ -122,104 +209,17 @@ void InitWheel()
 
 void InitServo()
 {
-  servo_left_right.write(90);
-  servo_up_down.write(0);
-  servo_hand.write(0);
-  servo_ear_tail.write(0);
+  servo_left_right.write(90);   // 정면 좌우 얼굴 회전용 서보모터를 90도 위치로 초기화
+  servo_up_down.write(0);       // 정면 상하 얼굴 회전용 서보모터를 0도 위치로 초기화
+  servo_hand.write(0);          // 양손 서보모터를 0도 위치로 초기화
+  servo_ear_tail.write(0);      // 양귀, 꼬리 서보모터를 0도 위치로 초기화
 }
 
-void loop() {
-
-
-  if( bt.available() )
-  {    
-    int sel = bt.read();
-    int sel2 = bt.read();
-    
-    Serial.println(sel);
-    
-    switch( sel )
-    {
-        case FORWARD:          // 수동조작 전진 명령
-           Serial.println("전진명령");
-           WheelSetup(sel);
-           break;
-
-
-        case BACKWARD:         // 수동조작 후진 명령
-           WheelSetup(sel);
-           break;
-
-
-        case TURN_LEFT:        // 수동조작 좌회전 명령
-           WheelSetup(sel);
-           break;
-          
-
-        case TURN_RIGHT:       // 수동조작 우회전 명령 
-           WheelSetup(sel);
-           break; 
-         
-        case STOP:             // 수동조작 정지 명령 
-           WheelSetup(sel);
-           break;
-
-        case USR_CALL:        // 음성 명령 "죠죠"
-           Call();
-           break;
-           
-        case USR_FOLLOW:      // 음성 명령 "이리와"
-           Follow();
-           break;
-           
-        case USR_BACK:        // 음성 명령 "저리가"
-           Back();
-           break;
-           
-        case USR_HOLD:        // 음성 명령 "멈춰"
-           Stop();
-           break;
-           
-        case USR_WALK:        // 음성 명령 "산책가자"
-           Walk();
-           break;
-           
-        case USR_TURN:        // 음성 명령 "돌아"
-           Turn();
-           break;
-           
-        case USR_HANDPUSH:    // 음성 명령 "손"
-           HandPush();
-           break;
-           
-        case USR_CAREFULLY:   // 음성 명령 "쫑긋"
-           Craefully();
-           break;
-
-        case USR_FORWARD:     // 음성 명령 "앞으로 가"
-             Forward();
-             break;
-
-        case USR_BACKWARD:    // 음성 명령 "뒤로 가"
-            Backward();
-            break;           
-           
-        case TEST:   // 테스트함수
-          Test();
-          break;
-
-        default :
-            WheelSetup(STOP);
-    }    
-  }
-  
-}
-
-void WheelSetup( int mode )
+void WheelSetup( int mode )     // 설정된 mode 인자에 따라 바퀴의 상태를 변화시키는 함수  
 {
   switch( mode )
   {
-        // 전진 명령
+        // 전진 명령 - 좌,우바퀴 모두 동작
         case FORWARD:
            digitalWrite(LEFT_WHEEL_MINUS, LOW);
            digitalWrite(LEFT_WHEEL_PLUS, HIGH);
@@ -227,7 +227,7 @@ void WheelSetup( int mode )
            digitalWrite(RIGHT_WHEEL_PLUS,HIGH);
            break;
 
-        // 후진 명령
+        // 후진 명령 - 좌,우바퀴 모두 반대로 동작
         case BACKWARD:
            digitalWrite(LEFT_WHEEL_MINUS, HIGH);
            digitalWrite(LEFT_WHEEL_PLUS, LOW);
@@ -235,7 +235,7 @@ void WheelSetup( int mode )
            digitalWrite(RIGHT_WHEEL_PLUS,LOW);
            break;
 
-        // 좌회전 명령
+        // 좌회전 명령 - 우 바퀴만 동작
         case TURN_LEFT:
            digitalWrite(LEFT_WHEEL_MINUS, LOW);
            digitalWrite(LEFT_WHEEL_PLUS, LOW);
@@ -243,108 +243,101 @@ void WheelSetup( int mode )
            digitalWrite(RIGHT_WHEEL_PLUS,HIGH);
            break;
           
-        // 우회전 명령 
+        // 우회전 명령 - 좌 바퀴만 동작
         case TURN_RIGHT:
            digitalWrite(LEFT_WHEEL_MINUS, LOW);
            digitalWrite(LEFT_WHEEL_PLUS, HIGH);
            digitalWrite(RIGHT_WHEEL_MINUS,LOW);
            digitalWrite(RIGHT_WHEEL_PLUS,LOW);
            break; 
+        
+        // 좌측바퀴만 반대로 동작하는 상태
         case LEFT_BACK:
            digitalWrite(LEFT_WHEEL_MINUS, HIGH);
            digitalWrite(LEFT_WHEEL_PLUS, LOW);
            digitalWrite(RIGHT_WHEEL_MINUS,LOW);
            digitalWrite(RIGHT_WHEEL_PLUS,LOW);
            break;
-          
+
+        // 우측바퀴만 반대로 동작하는 상태
         case RIGHT_BACK:
            digitalWrite(LEFT_WHEEL_MINUS, LOW);
            digitalWrite(LEFT_WHEEL_PLUS, LOW);
            digitalWrite(RIGHT_WHEEL_MINUS,HIGH);
            digitalWrite(RIGHT_WHEEL_PLUS,LOW);
            break; 
+
+        // STOP 또는 USR_HOLD
         case STOP:
         case USR_HOLD:          
            InitWheel();
-           break;   
-        case INIT_ALL:
-          InitAll();
-          break;                
+           break;           
    }
 }
-void Bark() {
-  mp3_next ();
-}
-void Call(){         // mp3 재생.
-  Bark();
-}
-
 
 void Follow(){       // 적외선 열화상 센서, 초음파센서 이용하여 온도총합이 높은 위치를 찾은후 거리를 측정하고 해당 방향으로 전환하여 이동한다.
   
-  int temp;
-  int temp2;
-  int Tmin = 1000, Tmax = 0;
-  int Tmin2 = 1000, Tmax2 = 0;
-  int int_temp;
-  int int_temp2;
-  int h,v;
-  int total[5][3] = { 0, };  // 2차원 배열의 요소를 모두 0으로 초기화
+  int temp;                       // 좌측 열화상 센서의 임시 온도변수
+  int temp2;                      // 우측 열화상 센서의 임시 온도변수
+  int Tmin = 1000, Tmax = 0;      // 좌측 열화상 센서의 온도 최소값, 최대값의 초기화
+  int Tmin2 = 1000, Tmax2 = 0;    // 우측 열화상 센서의 온도 최소값, 최대값의 초기화
+  int int_temp;                   // 21단계로 나뉜 온도의 세기 (좌측 센서)
+  int int_temp2;                  // 21단계로 나뉜 온도의 세기 (우측 센서)
+  int h,v;                                  // 수평, 수직 이동횟수를 결정하기 위한 변수
+  int total[H_SIZE][V_SIZE] = { 0, };       // 각 위치별로 기준치보다 높은 온도 횟수 총합을 체크하기위한 변수. 각 픽셀에서 기준치보다 높은 온도가 있다면 횟수 총합을 증가시킴. 2차원 배열의 요소를 모두 0으로 초기화
   int max_temp = 0;
-  int max_h, max_v;
-  int pos;
+  int max_h, max_v;                         // 기준치보다 높은 온도 횟수 총합이 제일 큰 위치
 
   long duration, distance;    // 초음파 센서용 변수
 
-   servo_left_right.write(90);
+   // 정면 얼굴 서보모터 위치 초기화 (좌우 90도 상하 0도) 
+   servo_left_right.write(90);   
    servo_up_down.write(0);
 
+  // 정면 얼굴 서보모터의 위치를 최초 센서값을 읽어들일 위치로 이동하는데 회전하면서 충격을 주지 않기 위해 부드럽게 조금씩 이동하는 모습. (좌우, 상하 서보모터 각각 45도 위치로 최종 이동한다.)
   for( pos=90; pos>=45; pos-=15 ){
     servo_left_right.write(pos);
     servo_up_down.write(90-pos);
     delay(300);
   }
 
-  for(v=0; v<1; v++)
+  for(v=0; v<V_SIZE; v++)      // v는 수직 각도 증가량으로, 수직 이동 횟수를 결정 (현재 값은 수직으로 1번만 이동함.) 
   {
-    for(h=0; h<5; h++)
-    {/*
-      if(h!=0)
-      {
-        for( pos=45+(h-1)*22.5; pos<=45+h*22.5; pos+=4.5 )
-          servo_left_right.write(pos);
-          delay(500);          
-      }*/
+    for(h=0; h<H_SIZE; h++)    // h는 수평 각도 증가량으로, 수평 이동 횟수를 결정 (현재 값은 수평으로 5번 이동함.)
+    {
 
       if(h!=0)
-        servo_left_right.write(45+h*22.5-11.25);
+        servo_left_right.write(45+h*22.5-11.25); // 수평 각도 증가량이 22.5도이지만 바로 22.5도로 움직이지 않고 11.25도 감소된 값으로 움직여 움직임에 충격을 줄임.
       delay(100);
-      servo_left_right.write(45+h*22.5);
-      servo_up_down.write(45+v*22.5);        //정면 서보 회전
+      servo_left_right.write(45+h*22.5);   // 수평 각도 증가량은 22.5도
+      servo_up_down.write(45+v*22.5);      // 수직 각도 증가량은 22.5도
       
-      amg.readPixels(pixels); // 픽셀 배열 읽어들인다.
-      amg2.readPixels(pixels2); // 픽셀 배열 읽어들인다.
+      amg.readPixels(pixels);   // 좌측 열화상 센서의 픽셀 배열 읽어들여 pixel 배열 변수에 저장한다
+      amg2.readPixels(pixels2); // 우측 열화상 센서의 픽셀 배열 읽어들여 pixel2 배열 변수에 저장한다
 
       delay(500);       // 지연시간을 설정해 충분히 센서값을 읽을 수 있도록함.  
 
-      for (int i = 1; i <= AMG88xx_PIXEL_ARRAY_SIZE; i++) {   // 최소 최대값 구한다.
-        temp = pixels[i - 1] * 10;
-        Tmin = Tmin > temp ? temp : Tmin;
-        Tmax = Tmax < temp ? temp : Tmax;
+      
+      // 온도의 최소 최대값 구한다.
+      for (int i = 1; i <= AMG88xx_PIXEL_ARRAY_SIZE; i++) {     // 1~64까지 index 값이 바뀜
+        temp = pixels[i - 1] * 10;              // index 값 위치의 픽셀 데이터를 읽어들여 온도변수에 저장(좌측 센서)
+        Tmin = Tmin > temp ? temp : Tmin;       // 온도 최소값이 계속 갱신된다.(좌측 센서)
+        Tmax = Tmax < temp ? temp : Tmax;       // 온도 최대값이 계속 갱신된다.(좌측 센서)
         
-        temp2 = pixels2[i - 1] * 10;
-        Tmin2 = Tmin2 > temp2 ? temp2 : Tmin2;
-        Tmax2 = Tmax2 < temp2 ? temp2 : Tmax2;
+        temp2 = pixels2[i - 1] * 10;            // index 값 위치의 픽셀 데이터를 읽어들여 온도변수에 저장(우측 센서)
+        Tmin2 = Tmin2 > temp2 ? temp2 : Tmin2;  // 온도 최소값이 계속 갱신된다.(우측 센서)
+        Tmax2 = Tmax2 < temp2 ? temp2 : Tmax2;  // 온도 최대값이 계속 갱신된다.(우측 센서)
       }
       
-      for (int i = AMG88xx_PIXEL_ARRAY_SIZE; i >= 1; i--) {   // 범위를 설정해 값을 맵핑시킨다.
-        temp = pixels[i - 1] * 10;
-        temp2 = pixels2[i - 1] * 10;
-        int_temp = map(temp, Tmin, Tmax, 0, 21); // 온도의 범위를 21단계로 나눔
-        int_temp2 = map(temp2, Tmin2, Tmax2, 0, 21); // 온도의 범위를 21단계로 나눔
+      // 범위를 설정해 값을 맵핑시킨다.
+      for (int i = AMG88xx_PIXEL_ARRAY_SIZE; i >= 1; i--) {    // 1~64까지 index 값이 바뀜
+        temp = pixels[i - 1] * 10;              // index 값 위치의 픽셀 데이터를 읽어들여 온도변수에 저장(좌측 센서)
+        temp2 = pixels2[i - 1] * 10;            // index 값 위치의 픽셀 데이터를 읽어들여 온도변수에 저장(우측 센서)
+        int_temp = map(temp, Tmin, Tmax, 0, 21);     // 온도의 범위를 21단계로 나눔(좌측 센서)
+        int_temp2 = map(temp2, Tmin2, Tmax2, 0, 21); // 온도의 범위를 21단계로 나눔(우측 센서)
         
-        if( int_temp>=12 || int_temp2>=12 )
-          total[h][v]++;      // 기준치보다 높다면 온도 총합에 포함          
+        if( int_temp>=12 || int_temp2>=12 )    // 기준치보다 높다면 횟수 총합을 증가시킨다. 현재 setting된 기준치는 12
+          total[h][v]++;                       // 해당 h와 v일때의 횟수 총합이 증가함.
       }        
       
     }
@@ -353,25 +346,27 @@ void Follow(){       // 적외선 열화상 센서, 초음파센서 이용하여
 
   
 
-
-  for(v=0; v<1; v++)        // 온도 총합이 최대인 위치를 찾음.
+  // 기준치보다 높은 온도의 총합이 제일 큰 위치를 찾음.
+  for(v=0; v<V_SIZE; v++)        
   {
-    for(h=0; h<5; h++)
+    for(h=0; h<H_SIZE; h++)
     {
       if( max_temp < total[h][v] )
       {
         max_temp = total[h][v];
-        max_h = h;
-        max_v = v;
+        max_h = h;    // 기준치보다 높은 온도 횟수 총합이 제일 큰 위치의 h 값
+        max_v = v;    // 기준치보다 높은 온도 횟수 총합이 제일 큰 위치의 v 값
       }
     }
   }
 
-    for( pos=135; pos>=45+max_h*22.5; pos-=11.25)
-    {
-      servo_left_right.write(pos);
-      delay(50);
-    }
+      // 회전 충격을 줄이기 위해 예정 위치보다 천천히 서보모터를 이동시킴
+      for( pos=135; pos>=45+max_h*22.5; pos-=11.25)
+      {
+        servo_left_right.write(pos);
+        delay(50);
+      }
+      
       //온도 총합이 최대인 위치로 정면을 바라봄
       servo_left_right.write(45+max_h*22.5);
       servo_up_down.write(45+max_v*22.5);   
@@ -385,30 +380,29 @@ void Follow(){       // 적외선 열화상 센서, 초음파센서 이용하여
       digitalWrite(pin_TRIG, LOW);
       
       duration = pulseIn (pin_ECHO, HIGH); //물체에 반사되어돌아온 초음파의 시간을 변수에 저장합니다.
-      //34000*초음파가 물체로 부터 반사되어 돌아오는시간 /1000000 / 2(왕복값이아니라 편도값이기때문에 나누기2를 해줍니다.)
-     //초음파센서의 거리값이 위 계산값과 동일하게 Cm로 환산되는 계산공식 입니다. 수식이 간단해지도록 적용했습니다.
-      distance = duration * 17 / 1000;
-      
-      switch( max_h )
+      distance = duration * 17 / 1000;     //초음파센서의 거리값이 Cm로 환산.  
+     
+     
+      switch( max_h )                      // 온도가 제일 높았던 위치 중에서 수평 위치에 따라 모터의 회전 방향과 회전 정도를 설정
       {
-        case 0:
+        case 0:                            // 45도라면 1초간 좌회전
           WheelSetup(TURN_LEFT);
           delay(1000);
           WheelSetup(STOP);
           break;
-        case 1:
-          WheelSetup(TURN_LEFT);
+        case 1:                           // 67.5도라면 0.6초간 좌회전
+          WheelSetup(TURN_LEFT);          
           delay(600);
           WheelSetup(STOP);
           break;
-        case 2:
+        case 2:                           // 90도라면 (정면)
           break;
-        case 3:
+        case 3:                           // 112.5도라면 0.6초간 우회전
           WheelSetup(TURN_RIGHT);
           delay(600);
           WheelSetup(STOP);
           break;
-        case 4:
+        case 4:                           // 135도라면 1초간 우회전
           WheelSetup(TURN_RIGHT);
           delay(1000);
           WheelSetup(STOP);
@@ -416,84 +410,77 @@ void Follow(){       // 적외선 열화상 센서, 초음파센서 이용하여
       }
       delay(500);
       WheelSetup(FORWARD);
-      delay(20*distance); // 1m 당 2초 전진
+      delay(20*distance);                 // 사용자와의 거리를 좁혀줌. 1m 당 2초 전진 
       WheelSetup(STOP);
 
       // 다시 정면을 바라봄
       servo_left_right.write(90);
-      servo_up_down.write(0);
-
-      
-
+      servo_up_down.write(0);  
       
 }
 
 
 void Back(){         // 적외선 열화상 센서, 초음파센서 이용하여 온도총합이 높은 위치를 찾은후 거리를 측정하고 해당방향과 반대로 멀어진다.
     
-  int temp;
-  int temp2;
-  int Tmin = 1000, Tmax = 0;
-  int Tmin2 = 1000, Tmax2 = 0;
-  int int_temp;
-  int int_temp2;
-  int h,v;
-  int total[5][3] = { 0, };  // 2차원 배열의 요소를 모두 0으로 초기화
-  int max_temp = 0;
-  int max_h, max_v;
-  int pos;
+  int temp;                       // 좌측 열화상 센서의 임시 온도변수
+  int temp2;                      // 우측 열화상 센서의 임시 온도변수
+  int Tmin = 1000, Tmax = 0;      // 좌측 열화상 센서의 온도 최소값, 최대값의 초기화
+  int Tmin2 = 1000, Tmax2 = 0;    // 우측 열화상 센서의 온도 최소값, 최대값의 초기화
+  int int_temp;                   // 21단계로 나뉜 온도의 세기 (좌측 센서)
+  int int_temp2;                  // 21단계로 나뉜 온도의 세기 (우측 센서)
+  int h,v;                                  // 수평, 수직 이동횟수를 결정하기 위한 변수
+  int total[H_SIZE][V_SIZE] = { 0, };       // 각 위치별로 기준치보다 높은 온도 횟수 총합을 체크하기위한 변수. 각 픽셀에서 기준치보다 높은 온도가 있다면 횟수 총합을 증가시킴. 2차원 배열의 요소를 모두 0으로 초기화
+  int max_temp = 0;                         // 횟수 총합이 최대인 위치를 찾기위한 임시변수
+  int max_h, max_v;                         // 기준치보다 높은 온도 횟수 총합이 제일 큰 위치 수평, 수직값
 
-  long duration, distance;    // 초음파 센서용 변수
+  long duration, distance;    // 초음파 센서용 시간, 거리 변수
 
+   // 정면 얼굴 서보모터 위치 초기화 (좌우 90도 상하 0도) 
    servo_left_right.write(90);
    servo_up_down.write(0);
 
+  // 정면 얼굴 서보모터의 위치를 최초 센서값을 읽어들일 위치로 이동하는데 회전하면서 충격을 주지 않기 위해 부드럽게 조금씩 이동하는 모습. (좌우, 상하 서보모터 각각 45도 위치로 최종 이동한다.)
   for( pos=90; pos>=45; pos-=15 ){
     servo_left_right.write(pos);
     servo_up_down.write(90-pos);
     delay(300);
   }
 
-  for(v=0; v<1; v++)
+  for(v=0; v<V_SIZE; v++)      // v는 수직 각도 증가량으로, 수직 이동 횟수를 결정 (현재 값은 수직으로 1번만 이동함.) 
   {
-    for(h=0; h<5; h++)
-    {/*
-      if(h!=0)
-      {
-        for( pos=45+(h-1)*22.5; pos<=45+h*22.5; pos+=4.5 )
-          servo_left_right.write(pos);
-          delay(500);          
-      }*/
+    for(h=0; h<H_SIZE; h++)    // h는 수평 각도 증가량으로, 수평 이동 횟수를 결정 (현재 값은 수평으로 5번 이동함.)
+    {
 
       if(h!=0)
-        servo_left_right.write(45+h*22.5-11.25);
+        servo_left_right.write(45+h*22.5-11.25); // 수평 각도 증가량이 22.5도이지만 바로 22.5도로 움직이지 않고 11.25도 감소된 값으로 움직여 움직임에 충격을 줄임.
       delay(100);
-      servo_left_right.write(45+h*22.5);
-      servo_up_down.write(45+v*22.5);        //정면 서보 회전
+      servo_left_right.write(45+h*22.5);   // 수평 각도 증가량은 22.5도
+      servo_up_down.write(45+v*22.5);      // 수직 각도 증가량은 22.5도
       
-      amg.readPixels(pixels); // 픽셀 배열 읽어들인다.
-      amg2.readPixels(pixels2); // 픽셀 배열 읽어들인다.
+      amg.readPixels(pixels);   // 좌측 열화상 센서의 픽셀 배열 읽어들여 pixel 배열 변수에 저장한다
+      amg2.readPixels(pixels2); // 우측 열화상 센서의 픽셀 배열 읽어들여 pixel2 배열 변수에 저장한다
 
       delay(500);       // 지연시간을 설정해 충분히 센서값을 읽을 수 있도록함.  
 
-      for (int i = 1; i <= AMG88xx_PIXEL_ARRAY_SIZE; i++) {   // 최소 최대값 구한다.
-        temp = pixels[i - 1] * 10;
-        Tmin = Tmin > temp ? temp : Tmin;
-        Tmax = Tmax < temp ? temp : Tmax;
+      // 온도의 최소 최대값 구한다.
+      for (int i = 1; i <= AMG88xx_PIXEL_ARRAY_SIZE; i++) {     // 1~64까지 index 값이 바뀜
+        temp = pixels[i - 1] * 10;              // index 값 위치의 픽셀 데이터를 읽어들여 온도변수에 저장(좌측 센서)
+        Tmin = Tmin > temp ? temp : Tmin;       // 온도 최소값이 계속 갱신된다.(좌측 센서)
+        Tmax = Tmax < temp ? temp : Tmax;       // 온도 최대값이 계속 갱신된다.(좌측 센서)
         
-        temp2 = pixels2[i - 1] * 10;
-        Tmin2 = Tmin2 > temp2 ? temp2 : Tmin2;
-        Tmax2 = Tmax2 < temp2 ? temp2 : Tmax2;
+        temp2 = pixels2[i - 1] * 10;            // index 값 위치의 픽셀 데이터를 읽어들여 온도변수에 저장(우측 센서)
+        Tmin2 = Tmin2 > temp2 ? temp2 : Tmin2;  // 온도 최소값이 계속 갱신된다.(우측 센서)
+        Tmax2 = Tmax2 < temp2 ? temp2 : Tmax2;  // 온도 최대값이 계속 갱신된다.(우측 센서)
       }
       
-      for (int i = AMG88xx_PIXEL_ARRAY_SIZE; i >= 1; i--) {   // 범위를 설정해 값을 맵핑시킨다.
-        temp = pixels[i - 1] * 10;
-        temp2 = pixels2[i - 1] * 10;
-        int_temp = map(temp, Tmin, Tmax, 0, 21); // 온도의 범위를 21단계로 나눔
-        int_temp2 = map(temp2, Tmin2, Tmax2, 0, 21); // 온도의 범위를 21단계로 나눔
+      for (int i = AMG88xx_PIXEL_ARRAY_SIZE; i >= 1; i--) {     // 1~64까지 index 값이 바뀜
+        temp = pixels[i - 1] * 10;              // index 값 위치의 픽셀 데이터를 읽어들여 온도변수에 저장(좌측 센서)
+        temp2 = pixels2[i - 1] * 10;            // index 값 위치의 픽셀 데이터를 읽어들여 온도변수에 저장(우측 센서)
+        int_temp = map(temp, Tmin, Tmax, 0, 21);     // 온도의 범위를 21단계로 나눔(좌측 센서)
+        int_temp2 = map(temp2, Tmin2, Tmax2, 0, 21); // 온도의 범위를 21단계로 나눔(우측 센서)
         
-        if( int_temp>=12 || int_temp2>=12 )
-          total[h][v]++;      // 기준치보다 높다면 온도 총합에 포함          
+        if( int_temp>=12 || int_temp2>=12 )    // 기준치보다 높다면 횟수 총합을 증가시킨다. 현재 setting된 기준치는 12
+          total[h][v]++;                       // 해당 h와 v일때의 횟수 총합이 증가함.
       }        
       
     }
@@ -503,19 +490,21 @@ void Back(){         // 적외선 열화상 센서, 초음파센서 이용하여
   
 
 
-  for(v=0; v<1; v++)        // 온도 총합이 최대인 위치를 찾음.
+  // 기준치보다 높은 온도의 총합이 제일 큰 위치를 찾음.
+  for(v=0; v<1; v++)
   {
     for(h=0; h<5; h++)
     {
       if( max_temp < total[h][v] )
       {
         max_temp = total[h][v];
-        max_h = h;
-        max_v = v;
+        max_h = h;    // 기준치보다 높은 온도 횟수 총합이 제일 큰 위치의 h 값
+        max_v = v;    // 기준치보다 높은 온도 횟수 총합이 제일 큰 위치의 v 값
       }
     }
   }
 
+    // 회전 충격을 줄이기 위해 예정 위치보다 천천히 서보모터를 이동시킴
     for( pos=135; pos>=45+max_h*22.5; pos-=11.25)
     {
       servo_left_right.write(pos);
@@ -533,31 +522,29 @@ void Back(){         // 적외선 열화상 센서, 초음파센서 이용하여
       delayMicroseconds(10);
       digitalWrite(pin_TRIG, LOW);
       
-      duration = pulseIn (pin_ECHO, HIGH); //물체에 반사되어돌아온 초음파의 시간을 변수에 저장합니다.
-      //34000*초음파가 물체로 부터 반사되어 돌아오는시간 /1000000 / 2(왕복값이아니라 편도값이기때문에 나누기2를 해줍니다.)
-     //초음파센서의 거리값이 위 계산값과 동일하게 Cm로 환산되는 계산공식 입니다. 수식이 간단해지도록 적용했습니다.
-      distance = duration * 17 / 1000;
+      duration = pulseIn (pin_ECHO, HIGH); //물체에 반사되어돌아온 초음파의 시간을 변수에 저장
+      distance = duration * 17 / 1000;     //초음파센서의 거리값이 Cm로 환산  
       
-      switch( max_h )
+      switch( max_h )                      // 온도가 제일 높았던 위치 중에서 수평 위치에 따라 모터의 회전 방향과 회전 정도를 설정
       {
-        case 0:
+        case 0:                            // 45도라면 1초간 좌바퀴 반대회전
           WheelSetup(LEFT_BACK);
           delay(1000);
           WheelSetup(STOP);
           break;
-        case 1:
+        case 1:                            // 67.5도라면 0.6초간 좌바퀴 반대회전
           WheelSetup(LEFT_BACK);
           delay(600);
           WheelSetup(STOP);
           break;
-        case 2:
+        case 2:                            // 90도라면 그대로 (정면)
           break;
-        case 3:
+        case 3:                            // 112.5도라면 0.6초간 우바퀴 반대회전
           WheelSetup(RIGHT_BACK);
           delay(600);
           WheelSetup(STOP);
           break;
-        case 4:
+        case 4:                            // 135도라면 1초간 우바퀴 반대회전
           WheelSetup(RIGHT_BACK);
           delay(1000);
           WheelSetup(STOP);
@@ -565,7 +552,7 @@ void Back(){         // 적외선 열화상 센서, 초음파센서 이용하여
       }
       delay(500);
       WheelSetup(BACKWARD);
-      delay(20*distance); // 1m 당 2초 후진
+      delay(20*distance);                  // 사용자와의 거리를 늘려 줌. 1m 당 2초 후진
       WheelSetup(STOP);
 
       // 다시 정면을 바라봄
@@ -573,6 +560,15 @@ void Back(){         // 적외선 열화상 센서, 초음파센서 이용하여
       servo_up_down.write(0);
 
       
+}
+
+
+void Call(){         // "죠죠" 명령 시 짖는 소리 함수를 호출
+  Bark();
+}
+
+void Bark() {
+  mp3_next ();       // mp3 재생.
 }
 
 void Walk(){         // 귀, 꼬리 2초간 흔들기
@@ -654,7 +650,7 @@ void Stop(){      // 동작 중지 함수
   InitAll();
 }
 
-void Test(){      // 전압 테스트용
+void Test(){      // 전압 테스트 함수
   float vout = 0.0;   
   float vin = 0.0;  
   float R1 = 30000.0;  
@@ -662,11 +658,11 @@ void Test(){      // 전압 테스트용
   int value = 0;
   
   value = analogRead(A0);
-  vout = (value * 5.0) / 1024.0;  //전압값을 계산해주는 공식입니다.
+  vout = (value * 5.0) / 1024.0;  //전압값을 계산해주는 공식
   vin = vout / ( R2 / ( R1 + R2) );
 
   Serial.print("V: ");
-  Serial.println(vin); //현재1.5V 4채널 건전지의 전압값을 출력해줍니다.
+  Serial.println(vin); // 현재1.5V 4채널 건전지의 전압값을 출력
 
   delay(1000);
 }
