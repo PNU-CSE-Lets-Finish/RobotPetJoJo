@@ -3,6 +3,7 @@
 #include <Wire.h>
 #include <Adafruit_AMG88xx.h>
 #include <DFPlayer_Mini_Mp3.h>
+#include <MsTimer2.h>
 
 // 블루투스 핀번호 할당
 #define pin_RX              2
@@ -49,11 +50,28 @@
 #define USR_FORWARD             'I'      // 스마트폰 마이크에 "앞으로 가" 명령 시 로봇펫이 2초간 앞으로 간다.
 #define USR_BACKWARD            'J'      // 스마트폰 마이크에 "뒤로 가" 명령 시 로봇펫이 2초간 뒤로 간다.
 
-#define TEST                    'T'      // 전압테스트
 #define INIT_ALL                'Z'      // 서보모터 및 바퀴 동작정지 상태
 
 #define H_SIZE                   5        // 열화상센서에서 수평위치 횟수를 결정
 #define V_SIZE                   1        // 열화상센서에서 수직위치 횟수를 결정
+
+#define TRUE  1
+#define FALSE 0
+#define STACK_LEN  100
+
+typedef int Data;
+
+typedef struct _arrayStack
+{
+  Data stackArr[STACK_LEN];
+  int topIndex;
+} ArrayStack;
+
+typedef ArrayStack Stack;
+
+
+
+
   
 SoftwareSerial bt(pin_RX,pin_TX); // 블루투스 시리얼 오브젝트
 Servo servo_ear_tail;             // 양귀, 꼬리용 서보 오브젝트
@@ -68,6 +86,9 @@ Adafruit_AMG88xx amg2;                    // 우측 열화상 센서용 오브�
 float pixels[AMG88xx_PIXEL_ARRAY_SIZE];   // 좌측 열화상 센서의 데이터를 담기 위한 픽셀 배열
 float pixels2[AMG88xx_PIXEL_ARRAY_SIZE];  // 우측 열화상 센서의 데이터를 담기 위한 픽셀 배열
 
+Stack cmdstk;        // 명령어를 담기 위한 스택
+int stop_flag = 0;   // 정지명령 플래그
+
 
 void setup() {
 
@@ -75,17 +96,18 @@ void setup() {
   amg.begin(0x68);        // 좌측 열화상 센서 주소 설정 (optional)
   amg2.begin(0x69);       // 우측 열화상 센서 주소 설정 (default)
   
+  MsTimer2::set(500, ISR_Timer);  // 500ms 주기로 Timer ISR 호출
+  MsTimer2::start();          // 타이머 인터럽트 활성화
+  
   // 초음파 센서 핀모드 설정 및 초기화
   pinMode(pin_ECHO, INPUT);
-  pinMode(pin_TRIG, OUTPUT);
-  
+  pinMode(pin_TRIG, OUTPUT);  
 
   // 모터 핀모드 설정 및 초기화
   pinMode(LEFT_WHEEL_MINUS, OUTPUT);
   pinMode(LEFT_WHEEL_PLUS, OUTPUT);
   pinMode(RIGHT_WHEEL_MINUS, OUTPUT);
   pinMode(RIGHT_WHEEL_PLUS, OUTPUT);  
-  InitWheel();
 
   // 각 서보모터 attach 시키기
   servo_ear_tail.attach(PIN_EAR_TAIL);
@@ -93,10 +115,12 @@ void setup() {
   servo_left_right.attach(PIN_LEFT_RIGHT);
   servo_up_down.attach(PIN_UP_DOWN);
 
-  // 얼굴 정면 위치 초기화
-  InitServo();
+  // 정면얼굴, 바퀴, 팔, 귀, 꼬리 서보모터 초기화
+  InitAll();
 
-
+  // 스택 초기화
+  StackInit(&cmdstk);
+  
   // DFPlayer 세팅
   Serial.begin(9600);
   mp3_set_serial(Serial);
@@ -105,17 +129,26 @@ void setup() {
   
   delay(100); // 센서가 부팅 될 수 있는 최소 시간 설정
 
+  
+  
+
 }
 
 void loop() {
-
-
-  if( bt.available() )        // 블루투스가 수신되었다면
-  {    
-    int sel = bt.read();      // 블루투스 읽어들인 다음 값을 sel에 저장
-    int sel2 = bt.read();     // 블루투스 읽어들인 다음 값을 sel2에 저장 (안드로이드 음성인식에서 똑같은 값을 2번 연속으로 보내기 때문에 하나를 버리기 위한 임시변수)
     
-    Serial.println(sel);      // 블루투스 값이 제대로 전달되었는지 시리얼 모니터 상으로 테스팅
+  int sel = 0;
+  stop_flag = 0;
+  
+  if( bt.available() )
+  {
+    SPush( &cmdstk, bt.read() );  // 명령어를 스택에 저장.
+    bt.read(); // 음성인식에서 블루투스가 같은값 연속으로 2번 보내는 bug때문에 하나의 값을 버리도록 함.
+  }
+
+
+  if( !SIsEmpty(&cmdstk) )    // 실행할 명령어가 있다면 (수신된 명령어가 스택에 남아있다면)
+  {    
+    sel = SPop(&cmdstk);
     
     switch( sel )             // sel의 값에 따라 조작을 설정
     {
@@ -182,10 +215,6 @@ void loop() {
             Backward();
             break;           
            
-        case TEST:   // 전압 테스트함수가 전달되었을 때
-          Test();
-          break;
-            
         case INIT_ALL:  // 서보모터 위치 초기화 및 바퀴 초기화
           InitAll();
           break;       
@@ -209,10 +238,15 @@ void InitWheel()      // 바퀴 상태를 정지 상태로 초기화
 
 void InitServo()
 {
-  servo_left_right.write(90);   // 정면 좌우 얼굴 회전용 서보모터를 90도 위치로 초기화
-  servo_up_down.write(0);       // 정면 상하 얼굴 회전용 서보모터를 0도 위치로 초기화
   servo_hand.write(0);          // 양손 서보모터를 0도 위치로 초기화
-  servo_ear_tail.write(0);      // 양귀, 꼬리 서보모터를 0도 위치로 초기화
+  servo_ear_tail.write(180);      // 양귀, 꼬리 서보모터를 0도 위치로 초기화
+}
+
+void InitHead()
+{
+   // 정면 얼굴 서보모터 위치 초기화 (좌우 90도 상하 0도)
+   servo_left_right.write(90);
+   servo_up_down.write(0);
 }
 
 void WheelSetup( int mode )     // 설정된 mode 인자에 따라 바퀴의 상태를 변화시키는 함수  
@@ -290,21 +324,24 @@ void Follow(){       // 적외선 열화상 센서, 초음파센서 이용하여
 
   long duration, distance;    // 초음파 센서용 변수
 
-   // 정면 얼굴 서보모터 위치 초기화 (좌우 90도 상하 0도) 
-   servo_left_right.write(90);   
-   servo_up_down.write(0);
+   // 정면 얼굴 서보모터 위치 초기화 (좌우 90도 상하 0도)
+   InitHead();
 
   // 정면 얼굴 서보모터의 위치를 최초 센서값을 읽어들일 위치로 이동하는데 회전하면서 충격을 주지 않기 위해 부드럽게 조금씩 이동하는 모습. (좌우, 상하 서보모터 각각 45도 위치로 최종 이동한다.)
-  for( pos=90; pos>=45; pos-=15 ){
+  for( pos=90; pos>=45; pos-=15 ){  
     servo_left_right.write(pos);
     servo_up_down.write(90-pos);
     delay(300);
   }
 
+
   for(v=0; v<V_SIZE; v++)      // v는 수직 각도 증가량으로, 수직 이동 횟수를 결정 (현재 값은 수직으로 1번만 이동함.) 
   {
     for(h=0; h<H_SIZE; h++)    // h는 수평 각도 증가량으로, 수평 이동 횟수를 결정 (현재 값은 수평으로 5번 이동함.)
     {
+      
+      if(stop_flag)   // stop 플래그 활성화 시 함수 종료.
+       return;
 
       if(h!=0)
         servo_left_right.write(45+h*22.5-11.25); // 수평 각도 증가량이 22.5도이지만 바로 22.5도로 움직이지 않고 11.25도 감소된 값으로 움직여 움직임에 충격을 줄임.
@@ -359,7 +396,7 @@ void Follow(){       // 적외선 열화상 센서, 초음파센서 이용하여
       }
     }
   }
-
+    
       // 회전 충격을 줄이기 위해 예정 위치보다 천천히 서보모터를 이동시킴
       for( pos=135; pos>=45+max_h*22.5; pos-=11.25)
       {
@@ -370,6 +407,10 @@ void Follow(){       // 적외선 열화상 센서, 초음파센서 이용하여
       //온도 총합이 최대인 위치로 정면을 바라봄
       servo_left_right.write(45+max_h*22.5);
       servo_up_down.write(45+max_v*22.5);   
+
+      
+      if(stop_flag)   // stop 플래그 활성화 시 함수 종료.
+       return;
 
       delay(500); // 초음파 센서 준비시간
           
@@ -409,13 +450,19 @@ void Follow(){       // 적외선 열화상 센서, 초음파센서 이용하여
           break;
       }
       delay(500);
+      
+      if(stop_flag)   // stop 플래그 활성화 시 함수 종료.
+       return;
+       
+      if( distance >= 100 )                // 사용자와의 거리가 1m 이상일 시 1m까지만 인식하도록 함. 
+        distance = 100;
+              
       WheelSetup(FORWARD);
       delay(20*distance);                 // 사용자와의 거리를 좁혀줌. 1m 당 2초 전진 
       WheelSetup(STOP);
 
       // 다시 정면을 바라봄
-      servo_left_right.write(90);
-      servo_up_down.write(0);  
+      InitHead();
       
 }
 
@@ -436,8 +483,7 @@ void Back(){         // 적외선 열화상 센서, 초음파센서 이용하여
   long duration, distance;    // 초음파 센서용 시간, 거리 변수
 
    // 정면 얼굴 서보모터 위치 초기화 (좌우 90도 상하 0도) 
-   servo_left_right.write(90);
-   servo_up_down.write(0);
+   InitHead();
 
   // 정면 얼굴 서보모터의 위치를 최초 센서값을 읽어들일 위치로 이동하는데 회전하면서 충격을 주지 않기 위해 부드럽게 조금씩 이동하는 모습. (좌우, 상하 서보모터 각각 45도 위치로 최종 이동한다.)
   for( pos=90; pos>=45; pos-=15 ){
@@ -450,6 +496,9 @@ void Back(){         // 적외선 열화상 센서, 초음파센서 이용하여
   {
     for(h=0; h<H_SIZE; h++)    // h는 수평 각도 증가량으로, 수평 이동 횟수를 결정 (현재 값은 수평으로 5번 이동함.)
     {
+      
+      if(stop_flag)   // stop 플래그 활성화 시 함수 종료.
+       return;
 
       if(h!=0)
         servo_left_right.write(45+h*22.5-11.25); // 수평 각도 증가량이 22.5도이지만 바로 22.5도로 움직이지 않고 11.25도 감소된 값으로 움직여 움직임에 충격을 줄임.
@@ -513,6 +562,9 @@ void Back(){         // 적외선 열화상 센서, 초음파센서 이용하여
       //온도 총합이 최대인 위치로 정면을 바라봄
       servo_left_right.write(45+max_h*22.5);
       servo_up_down.write(45+max_v*22.5);   
+      
+      if(stop_flag)   // stop 플래그 활성화 시 함수 종료.
+       return;
 
       delay(500); // 초음파 센서 준비시간
           
@@ -551,13 +603,19 @@ void Back(){         // 적외선 열화상 센서, 초음파센서 이용하여
           break;
       }
       delay(500);
+      
+      if(stop_flag)   // stop 플래그 활성화 시 함수 종료.
+       return;
+
+      if( distance >= 100 )                // 사용자와의 거리가 1m 이상일 시 1m까지만 인식하도록 함. 
+        distance = 100;
+        
       WheelSetup(BACKWARD);
       delay(20*distance);                  // 사용자와의 거리를 늘려 줌. 1m 당 2초 후진
       WheelSetup(STOP);
 
       // 다시 정면을 바라봄
-      servo_left_right.write(90);
-      servo_up_down.write(0);
+      InitHead();
 
       
 }
@@ -574,13 +632,20 @@ void Bark() {
 void Walk(){         // 귀, 꼬리 2초간 흔들기
   for( int i=0; i<1; i++)
   {
-    for( pos=0; pos<=100; pos+=10) 
+    for( pos=180; pos>=80; pos-=10)
     {
+      
+      if(stop_flag)   // stop 플래그 활성화 시 함수 종료.
+       return;
+       
       servo_ear_tail.write(pos);
       delay(50);
     }
-    for( pos=100; pos>=0; pos-=10)
+    for( pos=80; pos<=180; pos+=10) 
     {
+      if(stop_flag)   // stop 플래그 활성화 시 함수 종료.
+       return;
+       
       servo_ear_tail.write(pos);
       delay(50);
     }
@@ -597,6 +662,9 @@ void HandPush(){   // 왼손 내밀기
   
   for( pos=0; pos<=100; pos+=10) 
   {
+    if(stop_flag)   // stop 플래그 활성화 시 함수 종료.
+       return;
+       
     servo_hand.write(pos);
     delay(50);
   }
@@ -605,6 +673,10 @@ void HandPush(){   // 왼손 내밀기
   
   for( pos=100; pos>=0; pos-=10)
   {
+    
+    if(stop_flag)   // stop 플래그 활성화 시 함수 종료.
+       return;
+       
     servo_hand.write(pos);
     delay(50);
   }
@@ -614,13 +686,21 @@ void HandPush(){   // 왼손 내밀기
 void Craefully(){   // 귀를 2번 접었다 편다.
   for( int i=0; i<2; i++)
   {
-    for( pos=0; pos<=100; pos+=10) 
+    for( pos=180; pos>=80; pos-=10)
     {
+      
+      if(stop_flag)   // stop 플래그 활성화 시 함수 종료.
+       return;
+       
       servo_ear_tail.write(pos);
       delay(50);
     }
-    for( pos=100; pos>=0; pos-=10)
+    for( pos=80; pos<=180; pos+=10) 
     {
+      
+      if(stop_flag)   // stop 플래그 활성화 시 함수 종료.
+       return;
+       
       servo_ear_tail.write(pos);
       delay(50);
     }
@@ -641,28 +721,88 @@ void Backward(){  // 2초간 후진
 }
 
 
-void InitAll(){   // 서보모터 및 바퀴 동작 정지
+void InitAll(){   // 정면얼굴, 귀,꼬리,팔 서보모터 및 바퀴 동작 정지
+  InitWheel();
+  InitServo();
+  InitHead();
+}
+
+void Stop(){      // 동작 중지 함수
   InitWheel();
   InitServo();
 }
 
-void Stop(){      // 동작 중지 함수
-  InitAll();
+void ISR_Timer(){      // 타이머 ISR 호출. 최초 50ms 간격
+  static int timer_cnt = 0;
+  
+  if( bt.available() )
+  {
+    SPush( &cmdstk, bt.read() );  // 명령어를 스택에 저장.
+    bt.read();                    // 음성인식에서 블루투스가 같은값 연속으로 2번 보내는 bug때문에 하나의 값을 버리도록 함.
+  }
+
+
+  if( !SIsEmpty(&cmdstk) )    // 실행할 명령어가 있다면 (수신된 명령어가 스택에 남아있다면)
+  {    
+    if( SPeek(&cmdstk)== USR_HOLD ) // 정지 명령어라면
+     {
+        SPop(&cmdstk);
+        stop_flag = 1;  // stop 플래그 활성화
+     }
+  }
+
+  if( timer_cnt%200==0 ) // 100초마다 전압값 업데이트
+  {
+    float vout = 0.0;   
+    float vin = 0.0;  
+    float R1 = 30000.0;  
+    float R2 = 7500.0;  
+    int value = 0;
+    
+    value = analogRead(A0);
+    vout = (value * 5.0) / 1024.0;  //전압값을 계산해주는 공식
+    vin = vout / ( R2 / ( R1 + R2) );
+    bt.write(vin); // 현재1.5V 4채널 건전지의 전압값을 블루투스로 송신
+  }
+  
+  if(timer_cnt>=199)
+    timer_cnt=0;
+  else
+    timer_cnt++;
 }
 
-void Test(){      // 전압 테스트 함수
-  float vout = 0.0;   
-  float vin = 0.0;  
-  float R1 = 30000.0;  
-  float R2 = 7500.0;  
-  int value = 0;
-  
-  value = analogRead(A0);
-  vout = (value * 5.0) / 1024.0;  //전압값을 계산해주는 공식
-  vin = vout / ( R2 / ( R1 + R2) );
 
-  Serial.print("V: ");
-  Serial.println(vin); // 현재1.5V 4채널 건전지의 전압값을 출력
 
-  delay(1000);
+void StackInit(Stack * pstack)  // 스택 초기화 함수
+{
+  pstack->topIndex = -1;
+}
+
+int SIsEmpty(Stack * pstack)   // 빈 스택 확인 함수
+{
+  if(pstack->topIndex == -1)
+    return TRUE;
+  else
+    return FALSE;
+}
+
+void SPush(Stack * pstack, Data data) // 스택 Push 함수
+{
+  pstack->topIndex += 1;
+  pstack->stackArr[pstack->topIndex] = data;
+}
+
+Data SPop(Stack * pstack)             // 스택 Pop 함수
+{
+  int rIdx;
+
+  rIdx = pstack->topIndex;
+  pstack->topIndex -= 1;
+
+  return pstack->stackArr[rIdx];
+}
+
+Data SPeek(Stack * pstack)            // 스택 Peek 함수
+{
+  return pstack->stackArr[pstack->topIndex];
 }
