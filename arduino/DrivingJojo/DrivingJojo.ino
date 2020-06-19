@@ -61,7 +61,7 @@
 
 typedef int Data;
 
-typedef struct _arrayStack
+typedef struct _arrayStack        // 스택 구조체 설정
 {
   Data stackArr[STACK_LEN];
   int topIndex;
