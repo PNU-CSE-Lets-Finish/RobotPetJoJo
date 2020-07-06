@@ -100,28 +100,6 @@ public class CommunicationActivity extends AppCompatActivity {
         super.onDestroy();
     }
 
-    @Override
-    public void onStart() {
-        super.onStart();
-    }
-
-    @Override
-    public void onStop() {
-        super.onStop();
-    }
-
-    @Override
-    public void onResume() {
-        super.onResume();
-    }
-
-    @Override
-    public void onPause(){
-        super.onPause();
-    }
-
-
-
     private void receive(byte[] data) {
 //        receiveText.append(new String(data));
     }

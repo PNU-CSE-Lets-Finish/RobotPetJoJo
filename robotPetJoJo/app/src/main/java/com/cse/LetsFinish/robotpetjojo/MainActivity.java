@@ -32,6 +32,12 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+//        Intent iIntent = new Intent(getApplicationContext(), CommunicationActivity.class);
+//        startActivity(iIntent);
+//        finish();
+
+
+
         ListView listView = findViewById(R.id.list_item);
 
         if(getPackageManager().hasSystemFeature(PackageManager.FEATURE_BLUETOOTH))
@@ -49,9 +55,6 @@ public class MainActivity extends AppCompatActivity {
             Log.d(TAG, "Initialisation successful.");
             //show devices
         }
-
-
-
         Set<BluetoothDevice> devices = bluetoothAdapter.getBondedDevices();
         final BluetoothDevice[] pairedDevices = devices.toArray(new BluetoothDevice[0]);
 
@@ -60,17 +63,14 @@ public class MainActivity extends AppCompatActivity {
         }
 
         Collections.addAll(listItems, pairedDevices);
-//        for (int i=0;i<pairedDevices.length;i++) {
-//            listItems.add(pairedDevices[i]);
-//        }
-
         final BTListAdapter btListAdapter = new BTListAdapter(this, listItems);
         listView.setAdapter(btListAdapter);
+
         listView.setOnItemClickListener((parent, view, position, id) -> {
             BluetoothDevice device = listItems.get(position);
 //                Bundle args = new Bundle();
 //                args.putString("device", device.getAddress());
-            Toast.makeText(getApplicationContext(), device.toString(), Toast.LENGTH_LONG).show();
+            Toast.makeText(getApplicationContext(), device.getName() + "에 연결합니다.", Toast.LENGTH_LONG).show();
             Intent intent = new Intent(getApplicationContext(), CommunicationActivity.class);
             intent.putExtra("device", device);
             startActivity(intent);
