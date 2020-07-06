@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">RobotPetJoJo</string>
+    <string name="devices">Bluetooth Devices</string>
 </resources>

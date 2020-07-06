@@ -23,7 +23,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:textSize="30dp"
-        android:text="연결중..."
+        android:text="연결되었습니다"
         android:layout_marginStart="20dp"
         android:layout_marginTop="20dp"
         app:layout_constraintStart_toStartOf="parent"
@@ -62,11 +62,12 @@
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintBottom_toTopOf="@+id/img_jojo"/>
 
-    <TextView
+    <Button
         android:layout_width="300dp"
         android:layout_height="100dp"
         android:background="@drawable/shape_bg_user_speech_bubble"
         android:text="명령을 내려주세요."
+        android:id="@+id/speech_btn"
         android:gravity="center"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
